@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fila sem site</title>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+  </head>
+  <body>
+    <div class="navbar bg-base-200">
+      <div class="navbar-start">
+        <span class="px-4 text-lg font-medium">Fila sem site</span>
+      </div>
+      <div class="navbar-end">
+        <span class="px-4 text-sm text-base-content/70">Fortaleza</span>
+      </div>
+    </div>
+
+    <main class="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-6">
+      <div role="alert" class="alert alert-soft">
+        A lista vem do OpenStreetMap. O link Mapa só abre a busca no Google para você confirmar. Não copie o telefone do Google para esta fila.
+      </div>
+
+      <form id="busca" class="flex flex-col gap-3 md:flex-row md:items-end">
+        <label class="floating-label w-full md:max-w-xs">
+          <input id="bairro" class="input w-full" list="bairros" placeholder="Bairro" value="Aldeota" required />
+          <span>Bairro</span>
+        </label>
+        <datalist id="bairros"></datalist>
+        <button id="buscar" class="btn btn-primary" type="submit">Buscar no mapa</button>
+      </form>
+
+      <div id="aviso" role="alert" class="alert hidden"></div>
+
+      <div class="stats stats-vertical w-full shadow sm:stats-horizontal">
+        <div class="stat">
+          <div class="stat-title">Na fila</div>
+          <div id="total" class="stat-value">0</div>
+          <div class="stat-desc">sem site próprio</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Com telefone</div>
+          <div id="com-telefone" class="stat-value">0</div>
+          <div class="stat-desc">dá para ligar</div>
+        </div>
+        <div class="stat">
+          <div class="stat-title">Só rede</div>
+          <div id="so-rede" class="stat-value">0</div>
+          <div class="stat-desc">Instagram, Facebook ou Linktree</div>
+        </div>
+      </div>
+
+      <div class="flex flex-col gap-3 md:flex-row">
+        <input id="filtro-texto" class="input w-full md:max-w-sm" type="search" placeholder="Nome, rua ou telefone" />
+        <select id="filtro-presenca" class="select w-full md:w-auto">
+          <option value="">Presença</option>
+          <option value="sem_site">Sem site</option>
+          <option value="so_rede">Só rede</option>
+        </select>
+        <select id="filtro-status" class="select w-full md:w-auto">
+          <option value="">Status</option>
+          <option value="novo">Novo</option>
+          <option value="ligar">Ligar</option>
+          <option value="proposta">Proposta</option>
+          <option value="fechado">Fechado</option>
+          <option value="tem_site">Tem site</option>
+          <option value="nao_perturbe">Não perturbe</option>
+        </select>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="table table-zebra table-pin-rows">
+          <thead>
+            <tr>
+              <th>Comércio</th>
+              <th>Tipo</th>
+              <th>Presença</th>
+              <th>Telefone</th>
+              <th>Endereço</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="linhas"></tbody>
+        </table>
+      </div>
+      <p id="vazio" class="hidden text-sm text-base-content/70">Nenhum comércio nesta fila.</p>
+      <p class="text-xs text-base-content/60">© OpenStreetMap contributors</p>
+    </main>
+
+    <script>
+      const bairro = document.querySelector("#bairro");
+      const aviso = document.querySelector("#aviso");
+      const linhas = document.querySelector("#linhas");
+      const vazio = document.querySelector("#vazio");
+      const botao = document.querySelector("#buscar");
+      const statusNome = {
+        novo: "Novo",
+        ligar: "Ligar",
+        proposta: "Proposta",
+        fechado: "Fechado",
+        tem_site: "Tem site",
+        nao_perturbe: "Não perturbe",
+      };
+
+      function mostrarAviso(texto, erro) {
+        aviso.textContent = texto;
+        aviso.classList.remove("hidden", "alert-error", "alert-success");
+        aviso.classList.add(erro ? "alert-error" : "alert-success");
+      }
+
+      function esconderAviso() {
+        aviso.classList.add("hidden");
+      }
+
+      function params() {
+        const consulta = new URLSearchParams();
+        if (bairro.value.trim()) consulta.set("bairro", bairro.value.trim());
+        const presenca = document.querySelector("#filtro-presenca").value;
+        const status = document.querySelector("#filtro-status").value;
+        const busca = document.querySelector("#filtro-texto").value.trim();
+        if (presenca) consulta.set("presenca", presenca);
+        if (status) consulta.set("status", status);
+        if (busca) consulta.set("busca", busca);
+        return consulta;
+      }
+
+      function desenhar(leads) {
+        document.querySelector("#total").textContent = leads.length;
+        document.querySelector("#com-telefone").textContent = leads.filter((lead) => lead.telefone).length;
+        document.querySelector("#so-rede").textContent = leads.filter((lead) => lead.presenca === "so_rede").length;
+        linhas.replaceChildren();
+        vazio.classList.toggle("hidden", leads.length > 0);
+        for (const lead of leads) {
+          const tr = document.createElement("tr");
+          const select = document.createElement("select");
+          select.className = "select select-sm";
+          for (const [valor, rotulo] of Object.entries(statusNome)) {
+            const option = document.createElement("option");
+            option.value = valor;
+            option.textContent = rotulo;
+            option.selected = lead.status === valor;
+            select.append(option);
+          }
+          select.addEventListener("change", () => salvar(lead.id, select.value, lead.nota || ""));
+          const mapa = document.createElement("a");
+          mapa.className = "btn btn-sm";
+          mapa.href = lead.maps;
+          mapa.target = "_blank";
+          mapa.rel = "noreferrer";
+          mapa.textContent = "Mapa";
+          const telefone = document.createElement("div");
+          telefone.className = "flex flex-col gap-1";
+          telefone.append(document.createTextNode(lead.telefone || "—"));
+          if (lead.whatsapp) {
+            const zap = document.createElement("a");
+            zap.className = "link text-sm";
+            zap.href = lead.whatsapp;
+            zap.target = "_blank";
+            zap.rel = "noreferrer";
+            zap.textContent = "WhatsApp";
+            telefone.append(zap);
+          }
+          const presenca = document.createElement("span");
+          presenca.className = "badge";
+          presenca.textContent = lead.presenca === "so_rede" ? "Só rede" : "Sem site";
+          tr.append(
+            celula(lead.nome),
+            celula(lead.tipo),
+            celulaNode(presenca),
+            celulaNode(telefone),
+            celula(lead.endereco || "—"),
+            celulaNode(select),
+            celulaNode(mapa),
+          );
+          linhas.append(tr);
+        }
+      }
+
+      function celula(texto) {
+        const td = document.createElement("td");
+        td.textContent = texto;
+        return td;
+      }
+
+      function celulaNode(node) {
+        const td = document.createElement("td");
+        td.append(node);
+        return td;
+      }
+
+      async function carregar() {
+        const resposta = await fetch("/api/leads?" + params());
+        const dados = await resposta.json();
+        desenhar(dados.leads);
+      }
+
+      async function salvar(id, status, nota) {
+        const resposta = await fetch("/api/leads/" + id, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status, nota }),
+        });
+        if (!resposta.ok) {
+          mostrarAviso("Não consegui salvar o status.", true);
+          return;
+        }
+        carregar();
+      }
+
+      document.querySelector("#busca").addEventListener("submit", async (evento) => {
+        evento.preventDefault();
+        botao.disabled = true;
+        botao.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Buscando';
+        esconderAviso();
+        try {
+          const resposta = await fetch("/api/buscar", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ bairro: bairro.value.trim() }),
+          });
+          const dados = await resposta.json();
+          if (!resposta.ok) {
+            mostrarAviso(dados.detail || "A busca falhou.", true);
+            return;
+          }
+          mostrarAviso(dados.gravados + " comércios sem site nesta busca.", false);
+          desenhar(dados.leads);
+        } catch (erro) {
+          mostrarAviso("A busca não respondeu.", true);
+        } finally {
+          botao.disabled = false;
+          botao.textContent = "Buscar no mapa";
+        }
+      });
+
+      for (const id of ["filtro-texto", "filtro-presenca", "filtro-status"]) {
+        document.querySelector("#" + id).addEventListener("input", carregar);
+        document.querySelector("#" + id).addEventListener("change", carregar);
+      }
+
+      fetch("/api/bairros")
+        .then((resposta) => resposta.json())
+        .then((dados) => {
+          const lista = document.querySelector("#bairros");
+          for (const nome of dados.bairros) {
+            const option = document.createElement("option");
+            option.value = nome;
+            lista.append(option);
+          }
+        });
+
+      carregar();
+    </script>
+  </body>
+</html>
