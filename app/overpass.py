@@ -15,8 +15,9 @@ class OverpassError(Exception):
     pass
 
 
-def consultar(query: str, timeout: int = 50) -> dict:
-    ultimo_erro = "o mapa não respondeu"
+def consultar(query: str, timeout: int = 18) -> dict:
+    ultimo_erro = "Os servidores do OpenStreetMap não responderam. Tente de novo em um minuto."
+    vazio: dict | None = None
     for url in ENDPOINTS:
         try:
             resposta = httpx.post(
@@ -26,9 +27,19 @@ def consultar(query: str, timeout: int = 50) -> dict:
                 timeout=timeout,
             )
             resposta.raise_for_status()
-            return resposta.json()
-        except (httpx.HTTPError, ValueError):
-            ultimo_erro = "Os servidores do OpenStreetMap não responderam. Tente de novo em um minuto."
+            dados = resposta.json()
+        except (httpx.HTTPError, ValueError, OSError):
+            continue
+        if not isinstance(dados, dict):
+            continue
+        elementos = dados.get("elements")
+        if not isinstance(elementos, list):
+            continue
+        if elementos:
+            return dados
+        vazio = dados
+    if vazio is not None:
+        return vazio
     raise OverpassError(ultimo_erro)
 
 
@@ -89,59 +100,50 @@ def comercios_do_bairro(cidade: str, estado: str, bairro: str, nicho: str) -> li
         raise OverpassError("Escolha um nicho da lista.")
     if not nome:
         return comercios_da_cidade(cidade, cidade_mapa, estado_mapa, bloco)
-    confirmacao = consultar(
-        f"""
-[out:json][timeout:60];
-area["name"="{estado_mapa}"]["boundary"="administrative"]["admin_level"="4"]->.uf;
-relation["boundary"="administrative"]["admin_level"="8"]["name"="{cidade_mapa}"](area.uf);
-map_to_area -> .city;
-relation["name"="{nome}"]["boundary"="administrative"](area.city);
-out ids;
-"""
-    )
-    if not confirmacao.get("elements"):
-        raise OverpassError(
-            f"Não encontrei o bairro {bairro.strip()} no mapa de {cidade.strip()}."
-        )
     dados = consultar(
         f"""
-[out:json][timeout:90];
+[out:json][timeout:20];
 area["name"="{estado_mapa}"]["boundary"="administrative"]["admin_level"="4"]->.uf;
 relation["boundary"="administrative"]["admin_level"="8"]["name"="{cidade_mapa}"](area.uf);
 map_to_area -> .city;
-relation["name"="{nome}"]["boundary"="administrative"](area.city);
-map_to_area -> .bairro;
+relation["name"="{nome}"]["boundary"="administrative"](area.city)->.limite;
+.limite out ids;
+.limite map_to_area -> .bairro;
 (
 {bloco}
 );
 out center tags;
 """
     )
-    return dados.get("elements") or []
+    achou, comercios = separar_limite(dados)
+    if not achou:
+        raise OverpassError(
+            f"Não encontrei o bairro {bairro.strip()} no mapa de {cidade.strip()}."
+        )
+    return comercios
 
 
 def comercios_da_cidade(cidade: str, cidade_mapa: str, estado_mapa: str, bloco: str) -> list[dict]:
-    confirmacao = consultar(
-        f"""
-[out:json][timeout:60];
-area["name"="{estado_mapa}"]["boundary"="administrative"]["admin_level"="4"]->.uf;
-relation["boundary"="administrative"]["admin_level"="8"]["name"="{cidade_mapa}"](area.uf);
-out ids;
-"""
-    )
-    if not confirmacao.get("elements"):
-        raise OverpassError(f"Não encontrei {cidade.strip()} no mapa.")
     dados = consultar(
         f"""
-[out:json][timeout:120];
+[out:json][timeout:20];
 area["name"="{estado_mapa}"]["boundary"="administrative"]["admin_level"="4"]->.uf;
-relation["boundary"="administrative"]["admin_level"="8"]["name"="{cidade_mapa}"](area.uf);
-map_to_area -> .cidade;
+relation["boundary"="administrative"]["admin_level"="8"]["name"="{cidade_mapa}"](area.uf)->.limite;
+.limite out ids;
+.limite map_to_area -> .cidade;
 (
 {bloco.replace("(area.bairro)", "(area.cidade)")}
 );
 out center tags;
-""",
-        timeout=130,
+"""
     )
-    return dados.get("elements") or []
+    achou, comercios = separar_limite(dados)
+    if not achou:
+        raise OverpassError(f"Não encontrei {cidade.strip()} no mapa.")
+    return comercios
+
+
+def separar_limite(dados: dict) -> tuple[bool, list[dict]]:
+    elementos = [item for item in dados.get("elements") or [] if isinstance(item, dict)]
+    achou = any(item.get("type") == "relation" and not item.get("tags") for item in elementos)
+    return achou, [item for item in elementos if item.get("tags")]

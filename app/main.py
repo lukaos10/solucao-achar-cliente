@@ -86,7 +86,12 @@ def buscar(pedido: Busca):
         elementos = comercios_do_bairro(pedido.cidade, estado, pedido.bairro, pedido.nicho.strip())
     except OverpassError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    resumo = importar(pedido.cidade, pedido.uf, pedido.bairro, elementos, pedido.nicho.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"A busca falhou ({type(exc).__name__}).") from exc
+    try:
+        resumo = importar(pedido.cidade, pedido.uf, pedido.bairro, elementos, pedido.nicho.strip())
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"A busca falhou ({type(exc).__name__}).") from exc
     return {
         **resumo,
         "leads": listar(

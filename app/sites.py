@@ -1,3 +1,4 @@
+import os
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
@@ -109,21 +110,29 @@ def sites_por_nome(consultas: list[tuple[str, str, str]]) -> dict[str, str]:
             unicos[marca] = (nome, cidade, endereco)
     if not unicos:
         return {}
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        pares = pool.map(_consultar, unicos.items())
-    return dict(pares)
+    itens = list(unicos.items())
+    if os.environ.get("VERCEL"):
+        return dict(_consultar(item) for item in itens)
+    try:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            return dict(pool.map(_consultar, itens))
+    except RuntimeError:
+        return dict(_consultar(item) for item in itens)
 
 
 def _consultar(item: tuple[str, tuple[str, str, str]]) -> tuple[str, str]:
     marca, (nome, cidade, endereco) = item
-    for slug in _candidatos(nome):
-        for sufixo in (".com.br", ".com"):
-            host = slug + sufixo
-            if not _resolve(host):
-                continue
-            pagina = _baixar(f"https://{host}")
-            if pagina and _confirma(pagina, marca, cidade, endereco):
-                return marca, pagina[0]
+    try:
+        for slug in _candidatos(nome):
+            for sufixo in (".com.br", ".com"):
+                host = slug + sufixo
+                if not _resolve(host):
+                    continue
+                pagina = _baixar(f"https://{host}")
+                if pagina and _confirma(pagina, marca, cidade, endereco):
+                    return marca, pagina[0]
+    except Exception:
+        return marca, ""
     return marca, ""
 
 
@@ -157,7 +166,7 @@ def _resolve(host: str) -> bool:
     try:
         socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
         return True
-    except socket.gaierror:
+    except OSError:
         return False
 
 
