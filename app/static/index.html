@@ -12,9 +12,7 @@
       <div class="navbar-start">
         <span class="px-4 text-lg font-medium">Fila sem site</span>
       </div>
-      <div class="navbar-end">
-        <span class="px-4 text-sm text-base-content/70">Fortaleza</span>
-      </div>
+      <div class="navbar-end"></div>
     </div>
 
     <main class="mx-auto flex max-w-6xl flex-col gap-6 p-4 md:p-6">
@@ -22,12 +20,28 @@
         A lista vem do OpenStreetMap. O link Mapa só abre a busca no Google para você confirmar. Não copie o telefone do Google para esta fila.
       </div>
 
-      <form id="busca" class="flex flex-col gap-3 md:flex-row md:items-end">
-        <label class="floating-label w-full md:max-w-xs">
-          <input id="bairro" class="input w-full" list="bairros" placeholder="Bairro" value="Aldeota" required />
-          <span>Bairro</span>
-        </label>
-        <datalist id="bairros"></datalist>
+      <form id="busca" class="flex flex-col flex-wrap gap-3 md:flex-row md:items-end">
+        <div class="relative w-full md:max-w-xs">
+          <label class="floating-label">
+            <input id="cidade" class="input w-full" placeholder="Cidade" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lista-cidades" required />
+            <span>Cidade</span>
+          </label>
+          <ul id="lista-cidades" role="listbox" class="menu menu-sm bg-base-100 rounded-box absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto border border-base-300 shadow"></ul>
+        </div>
+        <div class="relative w-full md:max-w-xs">
+          <label class="floating-label">
+            <input id="bairro" class="input w-full" placeholder="Bairro" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lista-bairros" />
+            <span>Bairro</span>
+          </label>
+          <ul id="lista-bairros" role="listbox" class="menu menu-sm bg-base-100 rounded-box absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto border border-base-300 shadow"></ul>
+        </div>
+        <div class="relative w-full md:max-w-xs">
+          <label class="floating-label">
+            <input id="nicho" class="input w-full" placeholder="Nicho" autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="lista-nichos" />
+            <span>Nicho</span>
+          </label>
+          <ul id="lista-nichos" role="listbox" class="menu menu-sm bg-base-100 rounded-box absolute z-30 mt-1 hidden max-h-60 w-full overflow-y-auto border border-base-300 shadow"></ul>
+        </div>
         <button id="buscar" class="btn btn-primary" type="submit">Buscar no mapa</button>
       </form>
 
@@ -90,7 +104,12 @@
     </main>
 
     <script>
+      const cidadeInput = document.querySelector("#cidade");
       const bairro = document.querySelector("#bairro");
+      const nichoInput = document.querySelector("#nicho");
+      const listaCidades = document.querySelector("#lista-cidades");
+      const listaBairros = document.querySelector("#lista-bairros");
+      const listaNichos = document.querySelector("#lista-nichos");
       const aviso = document.querySelector("#aviso");
       const linhas = document.querySelector("#linhas");
       const vazio = document.querySelector("#vazio");
@@ -114,9 +133,49 @@
         aviso.classList.add("hidden");
       }
 
+      let cidades = [];
+      let bairros = [];
+      let nichos = [];
+      let versaoBairros = 0;
+      let cidadeSelecionada = null;
+      let cidadeToda = false;
+      let bairroSelecionado = "";
+      let nichoSelecionado = null;
+      let indiceCidade = -1;
+      let indiceBairro = -1;
+      let indiceNicho = -1;
+
+      const CIDADE_TODA = "Cidade toda";
+
+      function semAcento(texto) {
+        return texto.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+      }
+
+      function rotuloCidade(cidade) {
+        return cidade.n + " — " + cidade.u;
+      }
+
+      function ordenar(itens, ler) {
+        return itens.slice().sort((a, b) => ler(a).localeCompare(ler(b), "pt-BR"));
+      }
+
+      function filtrar(itens, texto, ler) {
+        const busca = semAcento(texto.trim());
+        const todos = ordenar(itens, ler);
+        if (!busca) return todos;
+        const comeca = todos.filter((item) => semAcento(ler(item)).startsWith(busca));
+        if (comeca.length) return comeca;
+        return todos.filter((item) => semAcento(ler(item)).includes(busca));
+      }
+
       function params() {
         const consulta = new URLSearchParams();
-        if (bairro.value.trim()) consulta.set("bairro", bairro.value.trim());
+        if (cidadeSelecionada) {
+          consulta.set("cidade", cidadeSelecionada.n);
+          consulta.set("uf", cidadeSelecionada.u);
+        }
+        if (bairroSelecionado) consulta.set("bairro", bairroSelecionado);
+        if (nichoSelecionado) consulta.set("nicho", nichoSelecionado.nome);
         const presenca = document.querySelector("#filtro-presenca").value;
         const status = document.querySelector("#filtro-status").value;
         const busca = document.querySelector("#filtro-texto").value.trim();
@@ -131,6 +190,7 @@
         document.querySelector("#com-telefone").textContent = leads.filter((lead) => lead.telefone).length;
         document.querySelector("#so-rede").textContent = leads.filter((lead) => lead.presenca === "so_rede").length;
         linhas.replaceChildren();
+        vazio.textContent = nichoSelecionado ? "Nenhum comércio nesta fila." : "Escolha um nicho.";
         vazio.classList.toggle("hidden", leads.length > 0);
         for (const lead of leads) {
           const tr = document.createElement("tr");
@@ -164,7 +224,8 @@
           }
           const presenca = document.createElement("span");
           presenca.className = "badge";
-          presenca.textContent = lead.presenca === "so_rede" ? "Só rede" : "Sem site";
+          presenca.textContent =
+            lead.presenca === "so_rede" ? "Só rede" : lead.presenca === "tem_site" ? "Tem site" : "Sem site";
           tr.append(
             celula(lead.nome),
             celula(lead.tipo),
@@ -191,6 +252,10 @@
       }
 
       async function carregar() {
+        if (!nichoSelecionado) {
+          desenhar([]);
+          return;
+        }
         const resposta = await fetch("/api/leads?" + params());
         const dados = await resposta.json();
         desenhar(dados.leads);
@@ -215,17 +280,38 @@
         botao.innerHTML = '<span class="loading loading-spinner loading-sm"></span> Buscando';
         esconderAviso();
         try {
+          if (!cidadeSelecionada) {
+            mostrarAviso("Escolha a cidade.", true);
+            return;
+          }
+          if (!cidadeToda && !bairros.includes(bairroSelecionado)) {
+            mostrarAviso("Escolha um bairro da lista ou a cidade toda.", true);
+            return;
+          }
+          if (!nichoSelecionado || !nichos.some((item) => item.id === nichoSelecionado.id)) {
+            mostrarAviso("Escolha um nicho da lista.", true);
+            return;
+          }
           const resposta = await fetch("/api/buscar", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ bairro: bairro.value.trim() }),
+            body: JSON.stringify({
+              cidade: cidadeSelecionada.n,
+              uf: cidadeSelecionada.u,
+              bairro: cidadeToda ? "" : bairroSelecionado,
+              nicho: nichoSelecionado.id,
+            }),
           });
           const dados = await resposta.json();
           if (!resposta.ok) {
             mostrarAviso(dados.detail || "A busca falhou.", true);
             return;
           }
-          mostrarAviso(dados.gravados + " comércios sem site nesta busca.", false);
+          let texto = dados.gravados + " comércios sem site nesta busca.";
+          if (dados.com_site) {
+            texto += " " + dados.com_site + " tinham site próprio e saíram da fila.";
+          }
+          mostrarAviso(texto, false);
           desenhar(dados.leads);
         } catch (erro) {
           mostrarAviso("A busca não respondeu.", true);
@@ -240,18 +326,274 @@
         document.querySelector("#" + id).addEventListener("change", carregar);
       }
 
-      fetch("/api/bairros")
+      function pintarLista(lista, itens, texto, indice, aoEscolher) {
+        lista.replaceChildren();
+        if (!itens.length) {
+          const vazioItem = document.createElement("li");
+          vazioItem.className = "menu-disabled";
+          vazioItem.textContent = "Nenhum resultado";
+          lista.append(vazioItem);
+          return;
+        }
+        itens.slice(0, 80).forEach((item, posicao) => {
+          const li = document.createElement("li");
+          const botaoItem = document.createElement("button");
+          botaoItem.type = "button";
+          botaoItem.setAttribute("role", "option");
+          botaoItem.textContent = texto(item);
+          if (posicao === indice) botaoItem.className = "menu-focus";
+          botaoItem.addEventListener("click", () => aoEscolher(item));
+          li.append(botaoItem);
+          lista.append(li);
+        });
+        lista.querySelector(".menu-focus")?.scrollIntoView({ block: "nearest" });
+      }
+
+      function abrir(lista, aberto) {
+        lista.classList.toggle("hidden", !aberto);
+        const campo = document.querySelector('[aria-controls="' + lista.id + '"]');
+        if (campo) campo.setAttribute("aria-expanded", aberto ? "true" : "false");
+      }
+
+      function mostrarCidades(texto, destacar) {
+        const busca = cidadeSelecionada && texto === rotuloCidade(cidadeSelecionada) ? "" : texto;
+        const itens = filtrar(cidades, busca, rotuloCidade).slice(0, 80);
+        indiceCidade = destacar && itens.length ? 0 : -1;
+        pintarLista(listaCidades, itens, rotuloCidade, indiceCidade, escolherCidade);
+        abrir(listaCidades, true);
+        return itens;
+      }
+
+      function itensBairro(texto) {
+        const selecionado = cidadeToda ? CIDADE_TODA : bairroSelecionado;
+        const busca = selecionado && texto === selecionado ? "" : texto;
+        const resto = filtrar(bairros, busca, (nome) => nome).slice(0, 80);
+        if (!busca || semAcento(CIDADE_TODA).startsWith(semAcento(busca))) {
+          return [CIDADE_TODA, ...resto];
+        }
+        return resto;
+      }
+
+      function mostrarBairros(texto, destacar) {
+        const itens = itensBairro(texto);
+        indiceBairro = destacar && itens.length ? 0 : -1;
+        pintarLista(listaBairros, itens, (nome) => nome, indiceBairro, escolherBairro);
+        abrir(listaBairros, true);
+        return itens;
+      }
+
+      async function escolherCidade(cidade) {
+        cidadeSelecionada = cidade;
+        cidadeInput.value = rotuloCidade(cidade);
+        abrir(listaCidades, false);
+        cidadeToda = true;
+        bairroSelecionado = "";
+        bairro.value = CIDADE_TODA;
+        bairros = [];
+        await carregarBairros(cidade);
+        carregar();
+      }
+
+      function escolherBairro(nome) {
+        cidadeToda = nome === CIDADE_TODA;
+        bairroSelecionado = cidadeToda ? "" : nome;
+        bairro.value = nome;
+        abrir(listaBairros, false);
+        carregar();
+      }
+
+      async function carregarBairros(cidade) {
+        const versao = ++versaoBairros;
+        bairro.disabled = true;
+        bairros = [];
+        listaBairros.replaceChildren();
+        const avisoItem = document.createElement("li");
+        avisoItem.className = "menu-disabled";
+        avisoItem.textContent = "Carregando bairros…";
+        listaBairros.append(avisoItem);
+        try {
+          const consulta = new URLSearchParams({ cidade: cidade.n, uf: cidade.u });
+          const resposta = await fetch("/api/bairros?" + consulta);
+          if (versao !== versaoBairros) return;
+          const dados = await resposta.json();
+          if (!resposta.ok) {
+            bairros = [];
+            mostrarAviso(dados.detail || "Não consegui carregar os bairros.", true);
+            return;
+          }
+          bairros = ordenar(dados.bairros, (nome) => nome);
+        } catch (erro) {
+          if (versao !== versaoBairros) return;
+          bairros = [];
+          mostrarAviso("Não consegui carregar os bairros.", true);
+        } finally {
+          if (versao !== versaoBairros) return;
+          bairro.disabled = false;
+          if (!listaBairros.classList.contains("hidden")) mostrarBairros(bairro.value, false);
+        }
+      }
+
+      function mover(evento, itens, indice, pintar) {
+        if (evento.key === "ArrowDown") {
+          evento.preventDefault();
+          return Math.min(indice + 1, itens.length - 1);
+        }
+        if (evento.key === "ArrowUp") {
+          evento.preventDefault();
+          return Math.max(indice - 1, 0);
+        }
+        return indice;
+      }
+
+      function abrirCidades() {
+        abrir(listaBairros, false);
+        abrir(listaNichos, false);
+        mostrarCidades(cidadeSelecionada ? "" : cidadeInput.value, !cidadeSelecionada);
+      }
+
+      cidadeInput.addEventListener("focus", () => {
+        cidadeInput.select();
+        abrirCidades();
+      });
+      cidadeInput.addEventListener("click", abrirCidades);
+      cidadeInput.addEventListener("input", () => {
+        cidadeSelecionada = null;
+        mostrarCidades(cidadeInput.value, true);
+      });
+      cidadeInput.addEventListener("keydown", (evento) => {
+        const itens = filtrar(
+          cidades,
+          cidadeSelecionada ? "" : cidadeInput.value,
+          rotuloCidade,
+        ).slice(0, 80);
+        if (evento.key === "Escape") {
+          abrir(listaCidades, false);
+          return;
+        }
+        if (evento.key === "Enter" && indiceCidade >= 0 && itens[indiceCidade]) {
+          evento.preventDefault();
+          escolherCidade(itens[indiceCidade]);
+          return;
+        }
+        const proximo = mover(evento, itens, indiceCidade);
+        if (proximo !== indiceCidade) {
+          indiceCidade = proximo;
+          pintarLista(listaCidades, itens, rotuloCidade, indiceCidade, escolherCidade);
+        }
+      });
+
+      function abrirBairros() {
+        abrir(listaCidades, false);
+        abrir(listaNichos, false);
+        const selecionado = cidadeToda ? CIDADE_TODA : bairroSelecionado;
+        mostrarBairros(selecionado || bairro.value, !selecionado);
+      }
+
+      bairro.addEventListener("focus", () => {
+        bairro.select();
+        abrirBairros();
+      });
+      bairro.addEventListener("click", abrirBairros);
+      bairro.addEventListener("input", () => {
+        bairroSelecionado = "";
+        cidadeToda = false;
+        mostrarBairros(bairro.value, true);
+      });
+      bairro.addEventListener("keydown", (evento) => {
+        const selecionado = cidadeToda ? CIDADE_TODA : bairroSelecionado;
+        const itens = itensBairro(selecionado || bairro.value);
+        if (evento.key === "Escape") {
+          abrir(listaBairros, false);
+          return;
+        }
+        if (evento.key === "Enter" && indiceBairro >= 0 && itens[indiceBairro]) {
+          evento.preventDefault();
+          escolherBairro(itens[indiceBairro]);
+          return;
+        }
+        const proximo = mover(evento, itens, indiceBairro);
+        if (proximo !== indiceBairro) {
+          indiceBairro = proximo;
+          pintarLista(listaBairros, itens, (nome) => nome, indiceBairro, escolherBairro);
+        }
+      });
+
+      function itensNicho(texto) {
+        const busca = nichoSelecionado && texto === nichoSelecionado.nome ? "" : texto;
+        return filtrar(nichos, busca, (item) => item.nome);
+      }
+
+      function mostrarNichos(texto, destacar) {
+        const itens = itensNicho(texto);
+        indiceNicho = destacar && itens.length ? 0 : -1;
+        pintarLista(listaNichos, itens, (item) => item.nome, indiceNicho, escolherNicho);
+        abrir(listaNichos, true);
+        return itens;
+      }
+
+      function escolherNicho(nicho) {
+        nichoSelecionado = nicho;
+        nichoInput.value = nicho.nome;
+        abrir(listaNichos, false);
+        carregar();
+      }
+
+      function abrirNichos() {
+        abrir(listaCidades, false);
+        abrir(listaBairros, false);
+        mostrarNichos(nichoSelecionado ? "" : nichoInput.value, !nichoSelecionado);
+      }
+
+      nichoInput.addEventListener("focus", () => {
+        nichoInput.select();
+        abrirNichos();
+      });
+      nichoInput.addEventListener("click", abrirNichos);
+      nichoInput.addEventListener("input", () => {
+        nichoSelecionado = null;
+        mostrarNichos(nichoInput.value, true);
+      });
+      nichoInput.addEventListener("keydown", (evento) => {
+        const itens = itensNicho(nichoSelecionado ? "" : nichoInput.value);
+        if (evento.key === "Escape") {
+          abrir(listaNichos, false);
+          return;
+        }
+        if (evento.key === "Enter" && indiceNicho >= 0 && itens[indiceNicho]) {
+          evento.preventDefault();
+          escolherNicho(itens[indiceNicho]);
+          return;
+        }
+        const proximo = mover(evento, itens, indiceNicho);
+        if (proximo !== indiceNicho) {
+          indiceNicho = proximo;
+          pintarLista(listaNichos, itens, (item) => item.nome, indiceNicho, escolherNicho);
+        }
+      });
+
+      document.addEventListener("click", (evento) => {
+        if (!evento.target.closest("#busca")) {
+          abrir(listaCidades, false);
+          abrir(listaBairros, false);
+          abrir(listaNichos, false);
+        }
+      });
+
+      fetch("/api/nichos")
         .then((resposta) => resposta.json())
         .then((dados) => {
-          const lista = document.querySelector("#bairros");
-          for (const nome of dados.bairros) {
-            const option = document.createElement("option");
-            option.value = nome;
-            lista.append(option);
-          }
+          nichos = dados.nichos.filter((item) => item.id !== "todos");
         });
 
-      carregar();
+      fetch("/api/cidades")
+        .then((resposta) => resposta.json())
+        .then(async (dados) => {
+          cidades = ordenar(dados.cidades, rotuloCidade);
+          const fortaleza = cidades.find((cidade) => cidade.n === "Fortaleza" && cidade.u === "CE");
+          if (fortaleza) await escolherCidade(fortaleza);
+          else carregar();
+        })
+        .catch(() => carregar());
     </script>
   </body>
 </html>

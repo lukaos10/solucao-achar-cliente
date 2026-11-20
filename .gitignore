@@ -5,5 +5,7 @@ __pycache__/
 .env
 .env.*
 data/*.db
+data/*.db-shm
+data/*.db-wal
 *.csv
 .pytest_cache/

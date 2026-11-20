@@ -131,6 +131,15 @@ def endereco_de(tags: dict) -> str:
     )
 
 
-def link_mapa(nome: str, endereco: str, bairro: str) -> str:
-    consulta = quote(f"{nome} {endereco} {bairro} Fortaleza".strip())
+def bairro_de(tags: dict) -> str:
+    return (
+        tags.get("addr:suburb")
+        or tags.get("addr:neighbourhood")
+        or tags.get("addr:quarter")
+        or ""
+    ).strip()
+
+
+def link_mapa(nome: str, endereco: str, bairro: str, cidade: str) -> str:
+    consulta = quote(f"{nome} {endereco} {bairro} {cidade}".strip())
     return f"https://www.google.com/maps/search/?api=1&query={consulta}"
