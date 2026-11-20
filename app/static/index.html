@@ -402,8 +402,9 @@
         carregar();
       }
 
-      async function carregarBairros(cidade) {
+      async function carregarBairros(cidade, tentativa = 0) {
         const versao = ++versaoBairros;
+        esconderAviso();
         bairro.disabled = true;
         bairros = [];
         listaBairros.replaceChildren();
@@ -417,19 +418,26 @@
           if (versao !== versaoBairros) return;
           const dados = await resposta.json();
           if (!resposta.ok) {
-            bairros = [];
-            mostrarAviso(dados.detail || "Não consegui carregar os bairros.", true);
-            return;
+            throw new Error(typeof dados.detail === "string" ? dados.detail : "");
           }
-          bairros = ordenar(dados.bairros, (nome) => nome);
+          bairros = ordenar(dados.bairros || [], (nome) => nome);
+          esconderAviso();
         } catch (erro) {
           if (versao !== versaoBairros) return;
+          if (tentativa < 1) {
+            bairro.disabled = false;
+            return carregarBairros(cidade, tentativa + 1);
+          }
           bairros = [];
-          mostrarAviso("Não consegui carregar os bairros.", true);
+          mostrarAviso(
+            erro.message || "Não consegui carregar os bairros. Você ainda pode buscar a cidade toda.",
+            true,
+          );
         } finally {
           if (versao !== versaoBairros) return;
           bairro.disabled = false;
           if (!listaBairros.classList.contains("hidden")) mostrarBairros(bairro.value, false);
+          else listaBairros.replaceChildren();
         }
       }
 
