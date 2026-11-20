@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,12 +16,19 @@ from app.classify import (
 from app.nichos import nicho_de, nome_de
 from app.sites import chave_marca, sites_por_nome
 
-CAMINHO = Path(__file__).resolve().parent.parent / "data" / "leads.db"
+def caminho_banco() -> Path:
+    local = Path(__file__).resolve().parent.parent / "data"
+    pasta = Path("/tmp/solucao-achar-cliente") if os.environ.get("VERCEL") else local
+    try:
+        pasta.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pasta = Path("/tmp/solucao-achar-cliente")
+        pasta.mkdir(parents=True, exist_ok=True)
+    return pasta / "leads.db"
 
 
 def conexao() -> sqlite3.Connection:
-    CAMINHO.parent.mkdir(parents=True, exist_ok=True)
-    banco = sqlite3.connect(CAMINHO, timeout=30)
+    banco = sqlite3.connect(caminho_banco(), timeout=30)
     banco.execute("PRAGMA journal_mode=WAL")
     banco.row_factory = sqlite3.Row
     banco.execute(

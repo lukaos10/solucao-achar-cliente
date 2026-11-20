@@ -416,9 +416,19 @@
           const consulta = new URLSearchParams({ cidade: cidade.n, uf: cidade.u });
           const resposta = await fetch("/api/bairros?" + consulta);
           if (versao !== versaoBairros) return;
-          const dados = await resposta.json();
+          const texto = await resposta.text();
+          let dados = {};
+          try {
+            dados = texto ? JSON.parse(texto) : {};
+          } catch {
+            throw new Error("Não consegui carregar os bairros. Você ainda pode buscar a cidade toda.");
+          }
           if (!resposta.ok) {
-            throw new Error(typeof dados.detail === "string" ? dados.detail : "");
+            throw new Error(
+              typeof dados.detail === "string" && dados.detail
+                ? dados.detail
+                : "Não consegui carregar os bairros. Você ainda pode buscar a cidade toda.",
+            );
           }
           bairros = ordenar(dados.bairros || [], (nome) => nome);
           esconderAviso();
