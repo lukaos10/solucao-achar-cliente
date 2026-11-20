@@ -302,10 +302,10 @@
               nicho: nichoSelecionado.id,
             }),
           });
-          const texto = await resposta.text();
+          const corpo = await resposta.text();
           let dados = {};
           try {
-            dados = texto ? JSON.parse(texto) : {};
+            dados = corpo ? JSON.parse(corpo) : {};
           } catch {
             mostrarAviso("A busca demorou demais. Espere um minuto e tente de novo.", true);
             return;
